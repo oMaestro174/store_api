@@ -1,4 +1,7 @@
-from typing import List
+# store/usecases/product.py (VERSÃO ATUALIZADA)
+
+from datetime import datetime
+from typing import List, Optional
 from uuid import UUID
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
 import pymongo
@@ -28,13 +31,38 @@ class ProductUsecase:
 
         return ProductOut(**result)
 
-    async def query(self) -> List[ProductOut]:
-        return [ProductOut(**item) async for item in self.collection.find()]
+    async def query(
+        self,
+        min_price: Optional[float] = None,
+        max_price: Optional[float] = None
+    ) -> List[ProductOut]:
+        # ALTERAÇÃO 1: Adicionando filtros de preço
+        filter_query = {}
+        if min_price is not None:
+            filter_query["price"] = {"$gt": min_price}
+        if max_price is not None:
+            # Se já houver um filtro de preço, adicione a condição. Senão, crie um novo.
+            if "price" in filter_query:
+                filter_query["price"]["$lt"] = max_price
+            else:
+                filter_query["price"] = {"$lt": max_price}
+
+        return [ProductOut(**item) async for item in self.collection.find(filter_query)]
 
     async def update(self, id: UUID, body: ProductUpdate) -> ProductUpdateOut:
+        product = await self.get(id)
+        
+        # ALTERAÇÃO 2: Atualizar a data `updated_at` para o tempo atual
+        product.updated_at = datetime.utcnow()
+
+        update_data = body.model_dump(exclude_unset=True)
+
+        for key, value in update_data.items():
+            setattr(product, key, value)
+            
         result = await self.collection.find_one_and_update(
             filter={"id": id},
-            update={"$set": body.model_dump(exclude_none=True)},
+            update={"$set": product.model_dump()},
             return_document=pymongo.ReturnDocument.AFTER,
         )
 
